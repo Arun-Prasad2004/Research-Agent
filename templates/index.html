@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SR-MARE - Research Assistant</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🔬</span>
+                    <h1>SR-MARE</h1>
+                </div>
+                <p class="tagline">Self-Reflective Multi-Agent Research Engine</p>
+            </div>
+
+            <div class="system-status" id="systemStatus">
+                <div class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <h3>System Stats</h3>
+                <div class="stat-item">
+                    <span class="stat-label">Documents Indexed</span>
+                    <span class="stat-value" id="docCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Queries</span>
+                    <span class="stat-value" id="queryCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Avg Confidence</span>
+                    <span class="stat-value" id="avgConfidence">—</span>
+                </div>
+            </div>
+
+            <div class="features-section">
+                <h3>Features</h3>
+                <ul class="features-list">
+                    <li>✨ Multi-Agent Analysis</li>
+                    <li>🎯 Self-Criticism</li>
+                    <li>🔄 Iterative Refinement</li>
+                    <li>📊 Uncertainty Metrics</li>
+                    <li>🔍 Vector Search</li>
+                    <li>🦙 100% Local (Ollama)</li>
+                </ul>
+            </div>
+
+            <div class="footer">
+                <p>Powered by Ollama</p>
+                <p class="version">v1.0.0</p>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-container">
+            <div class="chat-header">
+                <h2>Research Assistant</h2>
+                <button class="btn-secondary" id="clearChat">Clear Chat</button>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="welcome-message">
+                    <h2>Welcome to SR-MARE! 👋</h2>
+                    <p>Ask me any research question, and I'll provide a comprehensive, evidence-based answer.</p>
+                    <div class="example-questions">
+                        <p><strong>Try asking:</strong></p>
+                        <button class="example-btn" data-question="What are the main causes of climate change?">
+                            What are the main causes of climate change?
+                        </button>
+                        <button class="example-btn" data-question="How does machine learning work?">
+                            How does machine learning work?
+                        </button>
+                        <button class="example-btn" data-question="What is quantum entanglement?">
+                            What is quantum entanglement?
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <form id="chatForm">
+                    <textarea 
+                        id="questionInput" 
+                        placeholder="Ask a research question..."
+                        rows="1"
+                    ></textarea>
+                    <button type="submit" id="sendBtn" class="btn-primary">
+                        <span class="btn-text">Send</span>
+                        <span class="btn-icon">🚀</span>
+                    </button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

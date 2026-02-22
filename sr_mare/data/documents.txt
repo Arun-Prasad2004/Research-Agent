@@ -1,0 +1,44 @@
+# SR-MARE Sample Knowledge Base
+# Each paragraph represents a separate document for vector search
+
+Climate change refers to long-term shifts in global temperatures and weather patterns. While climate change is a natural phenomenon, scientific evidence shows that human activities have been the dominant cause of warming since the mid-20th century, primarily through the burning of fossil fuels which increases heat-trapping greenhouse gas levels in Earth's atmosphere.
+
+The greenhouse effect is a natural process where certain gases in Earth's atmosphere trap heat from the sun. The main greenhouse gases include carbon dioxide (CO2), methane (CH4), nitrous oxide (N2O), and water vapor. Without the greenhouse effect, Earth would be too cold to sustain life as we know it. However, human activities have significantly increased the concentration of these gases, leading to enhanced warming.
+
+Carbon dioxide is the primary greenhouse gas emitted through human activities. In 2020, CO2 accounted for about 79% of all U.S. greenhouse gas emissions from human activities. The main human activity that emits CO2 is the combustion of fossil fuels for energy and transportation. Deforestation also contributes to CO2 emissions, as trees absorb CO2 and release oxygen.
+
+Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed. It focuses on developing computer programs that can access data and use it to learn for themselves. The process of learning begins with observations or data to look for patterns and make better decisions in the future.
+
+Supervised learning is a type of machine learning where the algorithm learns from labeled training data. The algorithm makes predictions based on the input data and is corrected when its predictions are incorrect. Through an iterative process, the supervised learning algorithm learns to approximate the target function that maps inputs to outputs. Common applications include email spam detection and image recognition.
+
+Unsupervised learning algorithms work with unlabeled data to discover hidden patterns or data groupings without human intervention. These algorithms explore the structure of data to extract meaningful information. Clustering is a common unsupervised learning technique where the algorithm groups similar data points together. This approach is useful for customer segmentation and anomaly detection.
+
+Neural networks are computing systems inspired by the biological neural networks that constitute animal brains. They consist of interconnected nodes (neurons) organized in layers. Deep learning uses neural networks with multiple layers (deep neural networks) to progressively extract higher-level features from raw input. This technology powers many modern AI applications including speech recognition, computer vision, and natural language processing.
+
+Natural language processing (NLP) is a branch of artificial intelligence that helps computers understand, interpret, and manipulate human language. NLP draws from many disciplines including computer science and computational linguistics to bridge the gap between human communication and computer understanding. Applications include machine translation, sentiment analysis, and chatbots.
+
+Quantum computing is a type of computation that harnesses quantum mechanical phenomena such as superposition and entanglement. Unlike classical computers that use bits (0s and 1s), quantum computers use quantum bits or qubits. A qubit can exist in multiple states simultaneously, allowing quantum computers to process vast amounts of possibilities at once.
+
+Quantum superposition is a fundamental principle of quantum mechanics where a quantum system can exist in multiple states simultaneously until measured. When measured, the superposition collapses to a single state. This property allows quantum computers to explore many solutions simultaneously, potentially solving certain problems much faster than classical computers.
+
+Quantum entanglement is a physical phenomenon where pairs or groups of particles interact in ways such that the quantum state of each particle cannot be described independently. Instead, a quantum state must be described for the system as a whole. Einstein famously called this "spooky action at a distance." Entanglement is crucial for quantum computing and quantum cryptography.
+
+Renewable energy comes from natural sources that are constantly replenished. The most common types include solar, wind, hydroelectric, geothermal, and biomass energy. Unlike fossil fuels, renewable energy sources produce little to no greenhouse gas emissions and are becoming increasingly cost-competitive. Solar and wind power have seen particularly dramatic cost reductions over the past decade.
+
+Solar energy harnesses the power of the sun through photovoltaic cells that convert sunlight directly into electricity. Solar panels can be installed on rooftops, in solar farms, or integrated into building materials. The efficiency of solar panels has improved significantly, and costs have dropped dramatically, making solar one of the fastest-growing energy sources globally.
+
+Wind energy uses wind turbines to convert kinetic energy from wind into electrical power. Wind farms can be located onshore or offshore, with offshore wind generally providing more consistent and stronger winds. Modern wind turbines are highly efficient and can generate electricity at costs competitive with traditional fossil fuel power plants.
+
+Blockchain is a distributed ledger technology that maintains a secure and decentralized record of transactions. Each block contains a number of transactions, and every time a new transaction occurs, a record of it is added to every participant's ledger. The decentralized database is managed by multiple participants and is known as Distributed Ledger Technology (DLT).
+
+Cryptocurrency is a digital or virtual currency secured by cryptography, making it nearly impossible to counterfeit. Most cryptocurrencies are decentralized networks based on blockchain technology. Bitcoin, created in 2009, was the first cryptocurrency and remains the most well-known. Cryptocurrencies enable peer-to-peer transactions without the need for intermediaries like banks.
+
+Smart contracts are self-executing contracts with the terms directly written into code. They automatically execute and enforce themselves when predetermined conditions are met. Smart contracts run on blockchain networks, most notably Ethereum, and enable trustless transactions and agreements without the need for intermediaries, potentially revolutionizing various industries from finance to real estate.
+
+The human brain contains approximately 86 billion neurons, each forming thousands of connections with other neurons. These connections, called synapses, allow neurons to communicate through electrical and chemical signals. The brain's plasticity enables it to reorganize itself by forming new neural connections throughout life, which is the basis for learning and memory.
+
+Neuroplasticity refers to the brain's ability to modify its connections or rewire itself. This can occur in response to learning, experience, or following injury. The brain can compensate for injury by reorganizing and forming new connections between intact neurons. Understanding neuroplasticity has important implications for education, rehabilitation after brain injury, and understanding aging.
+
+Gene editing technologies like CRISPR-Cas9 allow scientists to make precise changes to DNA. CRISPR (Clustered Regularly Interspaced Short Palindromic Repeats) is adapted from a natural genome editing system in bacteria. The technology has potential applications in treating genetic diseases, improving crops, and advancing biological research. However, it also raises ethical questions about genetic modification.
+
+Photosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy stored in glucose. This process uses carbon dioxide from the atmosphere and water, releasing oxygen as a byproduct. Photosynthesis is crucial for life on Earth as it produces oxygen and forms the base of most food chains. The overall chemical equation is: 6CO2 + 6H2O + light energy → C6H12O6 + 6O2.
