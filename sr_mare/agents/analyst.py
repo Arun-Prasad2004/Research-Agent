@@ -4,7 +4,7 @@ Analyst agent for generating initial answers and multiple hypotheses.
 
 import requests
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional, Union
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -13,17 +13,27 @@ logger = logging.getLogger(__name__)
 class AnalystAgent:
     """Agent responsible for generating answers and hypotheses."""
     
-    def __init__(self, model: str = "mistral", base_url: str = "http://localhost:11434"):
+    def __init__(
+        self, 
+        model: str = "mistral", 
+        base_url: str = "http://localhost:11434",
+        mcp_client: Optional[Any] = None
+    ):
         """
         Initialize the analyst agent.
         
         Args:
             model: Name of the Ollama model to use
             base_url: Base URL for Ollama API
+            mcp_client: MCP client for tool interaction
         """
         self.model = model
         self.base_url = base_url
         self.generate_url = f"{base_url}/api/generate"
+        self.mcp_client = mcp_client
+        
+        if mcp_client:
+            logger.info("🔌 Analyst agent connected to MCP")
         
     def _call_ollama(self, prompt: str, temperature: float = 0.7) -> str:
         """
@@ -66,7 +76,7 @@ class AnalystAgent:
     def generate_answer(
         self, 
         question: str, 
-        retrieved_context: List[Tuple[str, float, dict]],
+        retrieved_context,
         plan: Dict[str, Any]
     ) -> str:
         """
@@ -74,7 +84,7 @@ class AnalystAgent:
         
         Args:
             question: The research question
-            retrieved_context: List of (document, similarity_score, metadata) tuples
+            retrieved_context: Retrieved documents (tuple or dict format)
             plan: Task breakdown from planner
             
         Returns:
@@ -82,11 +92,19 @@ class AnalystAgent:
         """
         logger.info("🔍 Analyst: Generating initial answer...")
         
-        # Format retrieved context
-        context_str = "\n\n".join([
-            f"[Source {i+1}] (Relevance: {score:.2f})\n{doc}"
-            for i, (doc, score, _) in enumerate(retrieved_context[:5])
-        ])
+        # Handle both tuple and dict formats
+        if retrieved_context and isinstance(retrieved_context[0], dict):
+            # Dict format from MCP
+            context_str = "\n\n".join([
+                f"[Source {i+1}] (Relevance: {doc['similarity_score']:.2f})\n{doc['text']}"
+                for i, doc in enumerate(retrieved_context[:5])
+            ])
+        else:
+            # Tuple format (legacy)
+            context_str = "\n\n".join([
+                f"[Source {i+1}] (Relevance: {score:.2f})\n{doc}"
+                for i, (doc, score, _) in enumerate(retrieved_context[:5])
+            ])
         
         if not context_str:
             context_str = "No relevant documents found in knowledge base."
@@ -117,7 +135,7 @@ Your comprehensive answer:"""
     def generate_hypotheses(
         self,
         question: str,
-        retrieved_context: List[Tuple[str, float, dict]],
+        retrieved_context,
         num_hypotheses: int = 3
     ) -> List[str]:
         """
@@ -125,7 +143,7 @@ Your comprehensive answer:"""
         
         Args:
             question: The research question
-            retrieved_context: List of retrieved documents
+            retrieved_context: Retrieved documents (tuple or dict format)
             num_hypotheses: Number of hypotheses to generate
             
         Returns:
@@ -133,11 +151,19 @@ Your comprehensive answer:"""
         """
         logger.info(f"💡 Analyst: Generating {num_hypotheses} independent hypotheses...")
         
-        # Format context
-        context_str = "\n\n".join([
-            f"[Source {i+1}]\n{doc}"
-            for i, (doc, score, _) in enumerate(retrieved_context[:5])
-        ])
+        # Handle both tuple and dict formats
+        if retrieved_context and isinstance(retrieved_context[0], dict):
+            # Dict format from MCP
+            context_str = "\n\n".join([
+                f"[Source {i+1}]\n{doc['text']}"
+                for i, doc in enumerate(retrieved_context[:5])
+            ])
+        else:
+            # Tuple format (legacy)
+            context_str = "\n\n".join([
+                f"[Source {i+1}]\n{doc}"
+                for i, (doc, score, _) in enumerate(retrieved_context[:5])
+            ])
         
         if not context_str:
             context_str = "No relevant documents found in knowledge base."
@@ -167,7 +193,7 @@ Your hypothesis:"""
     def analyze_with_context(
         self,
         question: str,
-        retrieved_context: List[Tuple[str, float, dict]],
+        retrieved_context: Union[List[Tuple[str, float, dict]], List[Dict[str, Any]]],
         plan: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -175,7 +201,7 @@ Your hypothesis:"""
         
         Args:
             question: The research question
-            retrieved_context: Retrieved documents
+            retrieved_context: Retrieved documents (tuple or dict format)
             plan: Task breakdown from planner
             
         Returns:

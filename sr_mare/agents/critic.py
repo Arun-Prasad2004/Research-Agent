@@ -5,7 +5,7 @@ Critic agent for evaluating answer quality and identifying issues.
 import requests
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,17 +14,27 @@ logger = logging.getLogger(__name__)
 class CriticAgent:
     """Agent responsible for critically evaluating answers."""
     
-    def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434"):
+    def __init__(
+        self, 
+        model: str = "llama3.2", 
+        base_url: str = "http://localhost:11434",
+        mcp_client: Optional[Any] = None
+    ):
         """
         Initialize the critic agent.
         
         Args:
             model: Name of the Ollama model to use (llama3.2 for criticism)
             base_url: Base URL for Ollama API
+            mcp_client: MCP client for tool interaction
         """
         self.model = model
         self.base_url = base_url
         self.generate_url = f"{base_url}/api/generate"
+        self.mcp_client = mcp_client
+        
+        if mcp_client:
+            logger.info("🔌 Critic agent connected to MCP")
         
     def _call_ollama(self, prompt: str, temperature: float = 0.3) -> str:
         """

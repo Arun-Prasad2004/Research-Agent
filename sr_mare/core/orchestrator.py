@@ -1,11 +1,11 @@
 """
-Orchestrator for coordinating the multi-agent research pipeline.
+Orchestrator for coordinating the multi-agent research pipeline with MCP.
 """
 
 import logging
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional, Union
 from datetime import datetime
 
 from sr_mare.agents.planner import PlannerAgent
@@ -17,6 +17,12 @@ from sr_mare.retrieval.vector_store import FAISSVectorStore
 from sr_mare.evaluation.uncertainty import UncertaintyEstimator
 from sr_mare.evaluation.metrics import ResearchMetrics
 
+# Import MCP components
+from sr_mare.mcp.server import MCPServer
+from sr_mare.mcp.client import MCPClient
+from sr_mare.mcp.tools import MCPTools
+from sr_mare.mcp.schema import ToolCategory, ToolParameter
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -25,17 +31,17 @@ logger = logging.getLogger(__name__)
 
 
 class ResearchOrchestrator:
-    """Orchestrates the complete multi-agent research pipeline."""
+    """Orchestrates the complete multi-agent research pipeline with MCP layer."""
     
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
         max_iterations: int = 3,
         confidence_threshold: float = 0.75,
-        vector_store_path: str = None
+        vector_store_path: Optional[str] = None
     ):
         """
-        Initialize the research orchestrator.
+        Initialize the research orchestrator with MCP integration.
         
         Args:
             base_url: Base URL for Ollama API
@@ -43,13 +49,7 @@ class ResearchOrchestrator:
             confidence_threshold: Minimum confidence to stop refinement
             vector_store_path: Path to load existing vector store
         """
-        logger.info("🚀 Initializing SR-MARE Research Orchestrator...")
-        
-        # Initialize agents
-        self.planner = PlannerAgent(model="mistral", base_url=base_url)
-        self.analyst = AnalystAgent(model="mistral", base_url=base_url)
-        self.critic = CriticAgent(model="llama3.2", base_url=base_url)
-        self.refiner = RefinerAgent(model="llama3.2", base_url=base_url)
+        logger.info("🚀 Initializing SR-MARE Research Orchestrator with MCP...")
         
         # Initialize retrieval components
         self.embedder = OllamaEmbedder(model="nomic-embed-text", base_url=base_url)
@@ -58,6 +58,46 @@ class ResearchOrchestrator:
         # Initialize evaluation components
         self.uncertainty_estimator = UncertaintyEstimator()
         self.metrics = ResearchMetrics()
+        
+        # Initialize MCP Server
+        logger.info("🔧 Initializing MCP Server...")
+        self.mcp_server = MCPServer()
+        
+        # Initialize MCP Tools wrapper
+        self.mcp_tools = MCPTools(
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            uncertainty_estimator=self.uncertainty_estimator,
+            metrics=self.metrics
+        )
+        
+        # Register tools with MCP server
+        self._register_mcp_tools()
+        
+        # Create MCP client for agents
+        self.mcp_client = MCPClient(self.mcp_server)
+        
+        # Initialize agents with MCP client
+        self.planner = PlannerAgent(
+            model="mistral", 
+            base_url=base_url,
+            mcp_client=self.mcp_client
+        )
+        self.analyst = AnalystAgent(
+            model="mistral", 
+            base_url=base_url,
+            mcp_client=self.mcp_client
+        )
+        self.critic = CriticAgent(
+            model="llama3.2", 
+            base_url=base_url,
+            mcp_client=self.mcp_client
+        )
+        self.refiner = RefinerAgent(
+            model="llama3.2", 
+            base_url=base_url,
+            mcp_client=self.mcp_client
+        )
         
         # Configuration
         self.max_iterations = max_iterations
@@ -71,7 +111,156 @@ class ResearchOrchestrator:
         # Experiment log
         self.experiment_log = []
         
-        logger.info("✓ Orchestrator initialized")
+        logger.info("✓ Orchestrator initialized with MCP layer")
+        self._log_mcp_stats()
+    
+    def _register_mcp_tools(self):
+        """Register all MCP tools with the server."""
+        logger.info("📝 Registering MCP tools...")
+        
+        # Tool 1: Retrieve Context
+        self.mcp_server.register_tool(
+            name="retrieve_context",
+            description="Retrieve relevant documents for a query using vector similarity search",
+            category=ToolCategory.RETRIEVAL,
+            implementation=self.mcp_tools.retrieve_context,
+            parameters=[
+                ToolParameter(
+                    name="query",
+                    type="str",
+                    description="Query text to search for",
+                    required=True
+                ),
+                ToolParameter(
+                    name="k",
+                    type="int",
+                    description="Number of documents to retrieve",
+                    required=False,
+                    default=5
+                )
+            ],
+            returns="Dictionary with retrieved documents and metadata"
+        )
+        
+        # Tool 2: Evaluate Confidence
+        self.mcp_server.register_tool(
+            name="evaluate_confidence",
+            description="Evaluate confidence in an answer using uncertainty metrics",
+            category=ToolCategory.EVALUATION,
+            implementation=self.mcp_tools.evaluate_confidence,
+            parameters=[
+                ToolParameter(
+                    name="answer",
+                    type="str",
+                    description="Generated answer to evaluate",
+                    required=True
+                ),
+                ToolParameter(
+                    name="hypotheses",
+                    type="list",
+                    description="List of alternative hypotheses",
+                    required=True
+                ),
+                ToolParameter(
+                    name="retrieved_docs",
+                    type="list",
+                    description="List of retrieved documents (dict format)",
+                    required=True
+                ),
+                ToolParameter(
+                    name="quality_score",
+                    type="float",
+                    description="Quality score from critic",
+                    required=True
+                )
+            ],
+            returns="Dictionary with confidence metrics"
+        )
+        
+        # Tool 3: Store Documents
+        self.mcp_server.register_tool(
+            name="store_documents",
+            description="Store documents in the vector store",
+            category=ToolCategory.MEMORY,
+            implementation=self.mcp_tools.store_documents,
+            parameters=[
+                ToolParameter(
+                    name="documents",
+                    type="list",
+                    description="List of document texts to store",
+                    required=True
+                ),
+                ToolParameter(
+                    name="metadata",
+                    type="list",
+                    description="Optional metadata for each document",
+                    required=False,
+                    default=None
+                )
+            ],
+            returns="Dictionary with storage results"
+        )
+        
+        # Tool 4: Score Retrieval Quality
+        self.mcp_server.register_tool(
+            name="score_retrieval_quality",
+            description="Compute quality metrics for retrieved documents",
+            category=ToolCategory.EVALUATION,
+            implementation=self.mcp_tools.score_retrieval_quality,
+            parameters=[
+                ToolParameter(
+                    name="retrieved_docs",
+                    type="list",
+                    description="List of retrieved documents (dict format)",
+                    required=True
+                )
+            ],
+            returns="Dictionary with retrieval metrics"
+        )
+        
+        # Tool 5: Compute Self-Consistency
+        self.mcp_server.register_tool(
+            name="compute_self_consistency",
+            description="Compute self-consistency score for multiple hypotheses",
+            category=ToolCategory.COMPUTATION,
+            implementation=self.mcp_tools.compute_self_consistency,
+            parameters=[
+                ToolParameter(
+                    name="hypotheses",
+                    type="list",
+                    description="List of hypothesis strings",
+                    required=True
+                )
+            ],
+            returns="Dictionary with consistency score"
+        )
+        
+        # Tool 6: Compute Evidence Diversity
+        self.mcp_server.register_tool(
+            name="compute_evidence_diversity",
+            description="Compute diversity score for evidence sources",
+            category=ToolCategory.COMPUTATION,
+            implementation=self.mcp_tools.compute_evidence_diversity,
+            parameters=[
+                ToolParameter(
+                    name="retrieved_docs",
+                    type="list",
+                    description="List of retrieved documents (dict format)",
+                    required=True
+                )
+            ],
+            returns="Dictionary with diversity score"
+        )
+        
+        logger.info(f"✓ Registered {self.mcp_server.registry.get_tool_count()} MCP tools")
+    
+    def _log_mcp_stats(self):
+        """Log MCP server statistics."""
+        stats = self.mcp_server.get_server_stats()
+        logger.info(f"📊 MCP Server Stats:")
+        logger.info(f"   - Protocol Version: {stats['protocol_version']}")
+        logger.info(f"   - Registered Tools: {stats['registered_tools']}")
+        logger.info(f"   - Tools by Category: {stats['tools_by_category']}")
     
     def test_connections(self) -> bool:
         """
@@ -96,52 +285,58 @@ class ResearchOrchestrator:
     
     def load_documents(self, documents: List[str]):
         """
-        Load documents into the vector store.
+        Load documents into the vector store using MCP.
         
         Args:
             documents: List of document texts to index
         """
-        logger.info(f"📚 Loading {len(documents)} documents into vector store...")
+        logger.info(f"📚 Loading {len(documents)} documents into vector store via MCP...")
         
         if len(documents) == 0:
             logger.warning("No documents to load")
             return
         
-        # Generate embeddings
-        embeddings = self.embedder.embed_batch(documents)
-        
-        # Add to vector store
+        # Use MCP tool to store documents
         metadata = [{"doc_id": i, "loaded_at": datetime.now().isoformat()} 
                    for i in range(len(documents))]
-        self.vector_store.add_documents(documents, embeddings, metadata)
         
-        logger.info(f"✓ Loaded {len(documents)} documents")
+        result = self.mcp_client.execute_tool(
+            tool_name="store_documents",
+            parameters={
+                "documents": documents,
+                "metadata": metadata
+            }
+        )
+        
+        logger.info(f"✓ Loaded {result['num_stored']} documents (Total: {result['total_documents']})")
     
-    def retrieve_context(self, question: str, k: int = 5) -> List[Tuple[str, float, dict]]:
+    def retrieve_context(self, question: str, k: int = 5) -> List[Dict[str, Any]]:
         """
-        Retrieve relevant context for a question.
+        Retrieve relevant context for a question using MCP.
         
         Args:
             question: The research question
             k: Number of documents to retrieve
             
         Returns:
-            List of (document, similarity_score, metadata) tuples
+            List of document dictionaries with metadata
         """
-        logger.info(f"🔍 Retrieving top {k} relevant documents...")
+        logger.info(f"🔍 Retrieving top {k} relevant documents via MCP...")
         
-        # Generate query embedding
-        query_embedding = self.embedder.embed_text(question)
+        result = self.mcp_client.execute_tool(
+            tool_name="retrieve_context",
+            parameters={
+                "query": question,
+                "k": k
+            }
+        )
         
-        # Search vector store
-        results = self.vector_store.search(query_embedding, k=k)
-        
-        logger.info(f"✓ Retrieved {len(results)} documents")
-        return results
+        logger.info(f"✓ Retrieved {result['num_retrieved']} documents")
+        return result["documents"]
     
     def research(self, question: str, top_k: int = 5) -> Dict[str, Any]:
         """
-        Execute the complete research pipeline for a question.
+        Execute the complete research pipeline for a question using MCP.
         
         Args:
             question: The research question to answer
@@ -160,12 +355,15 @@ class ResearchOrchestrator:
         logger.info("\n[STEP 1] Planning...")
         plan = self.planner.plan(question)
         
-        # Step 2: Retrieval
-        logger.info("\n[STEP 2] Retrieving relevant context...")
+        # Step 2: Retrieval via MCP
+        logger.info("\n[STEP 2] Retrieving relevant context via MCP...")
         retrieved_docs = self.retrieve_context(question, k=top_k)
         
-        # Compute retrieval metrics
-        retrieval_metrics = self.metrics.compute_retrieval_metrics(retrieved_docs)
+        # Compute retrieval metrics via MCP
+        retrieval_metrics = self.mcp_client.execute_tool(
+            tool_name="score_retrieval_quality",
+            parameters={"retrieved_docs": retrieved_docs}
+        )
         
         # Step 3: Initial analysis
         logger.info("\n[STEP 3] Generating initial analysis...")
@@ -186,12 +384,15 @@ class ResearchOrchestrator:
             critique = self.critic.critique(question, current_answer, hypotheses)
             quality_score = critique.get("quality_score", 0.5)
             
-            # Step 5: Compute uncertainty metrics
-            confidence_metrics = self.uncertainty_estimator.compute_confidence_score(
-                current_answer,
-                hypotheses,
-                retrieved_docs,
-                quality_score
+            # Step 5: Compute confidence via MCP
+            confidence_metrics = self.mcp_client.execute_tool(
+                tool_name="evaluate_confidence",
+                parameters={
+                    "answer": current_answer,
+                    "hypotheses": hypotheses,
+                    "retrieved_docs": retrieved_docs,
+                    "quality_score": quality_score
+                }
             )
             
             current_confidence = confidence_metrics["final_confidence"]
@@ -228,11 +429,14 @@ class ResearchOrchestrator:
         
         # Final evaluation
         final_critique = self.critic.critique(question, current_answer, hypotheses)
-        final_confidence_metrics = self.uncertainty_estimator.compute_confidence_score(
-            current_answer,
-            hypotheses,
-            retrieved_docs,
-            final_critique.get("quality_score", 0.5)
+        final_confidence_metrics = self.mcp_client.execute_tool(
+            tool_name="evaluate_confidence",
+            parameters={
+                "answer": current_answer,
+                "hypotheses": hypotheses,
+                "retrieved_docs": retrieved_docs,
+                "quality_score": final_critique.get("quality_score", 0.5)
+            }
         )
         
         # Compute iteration improvement metrics
@@ -266,11 +470,11 @@ class ResearchOrchestrator:
             "calibration_metrics": calibration,
             "retrieved_sources": [
                 {
-                    "text": doc[:200] + "..." if len(doc) > 200 else doc,
-                    "similarity": float(score),
-                    "metadata": meta
+                    "text": doc["text"][:200] + "..." if len(doc["text"]) > 200 else doc["text"],
+                    "similarity": doc["similarity_score"],
+                    "metadata": doc.get("metadata", {})
                 }
-                for doc, score, meta in retrieved_docs
+                for doc in retrieved_docs
             ],
             "retrieval_metrics": retrieval_metrics,
             "answer_metrics": answer_metrics,

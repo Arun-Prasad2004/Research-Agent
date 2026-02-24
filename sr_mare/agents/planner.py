@@ -5,7 +5,7 @@ Planner agent for breaking down complex research questions into subtasks.
 import requests
 import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,17 +14,27 @@ logger = logging.getLogger(__name__)
 class PlannerAgent:
     """Agent responsible for decomposing complex questions into subtasks."""
     
-    def __init__(self, model: str = "mistral", base_url: str = "http://localhost:11434"):
+    def __init__(
+        self, 
+        model: str = "mistral", 
+        base_url: str = "http://localhost:11434",
+        mcp_client: Optional[Any] = None
+    ):
         """
         Initialize the planner agent.
         
         Args:
             model: Name of the Ollama model to use
             base_url: Base URL for Ollama API
+            mcp_client: MCP client for tool interaction
         """
         self.model = model
         self.base_url = base_url
         self.generate_url = f"{base_url}/api/generate"
+        self.mcp_client = mcp_client
+        
+        if mcp_client:
+            logger.info("🔌 Planner agent connected to MCP")
         
     def _call_ollama(self, prompt: str, temperature: float = 0.3) -> str:
         """

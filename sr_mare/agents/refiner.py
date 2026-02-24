@@ -4,7 +4,7 @@ Refiner agent for improving answers based on critic feedback.
 
 import requests
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional, Union
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -13,17 +13,27 @@ logger = logging.getLogger(__name__)
 class RefinerAgent:
     """Agent responsible for refining answers based on feedback."""
     
-    def __init__(self, model: str = "llama3.2", base_url: str = "http://localhost:11434"):
+    def __init__(
+        self, 
+        model: str = "llama3.2", 
+        base_url: str = "http://localhost:11434",
+        mcp_client: Optional[Any] = None
+    ):
         """
         Initialize the refiner agent.
         
         Args:
             model: Name of the Ollama model to use (llama3.2 for refinement)
             base_url: Base URL for Ollama API
+            mcp_client: MCP client for tool interaction
         """
         self.model = model
         self.base_url = base_url
         self.generate_url = f"{base_url}/api/generate"
+        self.mcp_client = mcp_client
+        
+        if mcp_client:
+            logger.info("🔌 Refiner agent connected to MCP")
         
     def _call_ollama(self, prompt: str, temperature: float = 0.5) -> str:
         """
@@ -68,7 +78,7 @@ class RefinerAgent:
         question: str,
         original_answer: str,
         critique: Dict[str, Any],
-        retrieved_context: List[Tuple[str, float, dict]]
+        retrieved_context
     ) -> str:
         """
         Refine the answer based on critic feedback.
@@ -77,18 +87,26 @@ class RefinerAgent:
             question: The original research question
             original_answer: The answer to be refined
             critique: Feedback from the critic agent
-            retrieved_context: Retrieved documents for reference
+            retrieved_context: Retrieved documents (tuple or dict format)
             
         Returns:
             Refined answer
         """
         logger.info("✨ Refiner: Improving answer based on feedback...")
         
-        # Format context
-        context_str = "\n\n".join([
-            f"[Source {i+1}]\n{doc}"
-            for i, (doc, score, _) in enumerate(retrieved_context[:5])
-        ])
+        # Handle both tuple and dict formats
+        if retrieved_context and isinstance(retrieved_context[0], dict):
+            # Dict format from MCP
+            context_str = "\n\n".join([
+                f"[Source {i+1}]\n{doc['text']}"
+                for i, doc in enumerate(retrieved_context[:5])
+            ])
+        else:
+            # Tuple format (legacy)
+            context_str = "\n\n".join([
+                f"[Source {i+1}]\n{doc}"
+                for i, (doc, score, _) in enumerate(retrieved_context[:5])
+            ])
         
         # Format critique feedback
         weaknesses = "\n".join([f"- {w}" for w in critique.get("weaknesses", [])])
