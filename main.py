@@ -174,10 +174,17 @@ Examples:
     )
     
     parser.add_argument(
-        '--ollama-url',
+        '--groq-api-key',
         type=str,
-        default='http://localhost:11434',
-        help='Ollama API URL (default: http://localhost:11434)'
+        default=None,
+        help='Groq API Key'
+    )
+    
+    parser.add_argument(
+        '--groq-model',
+        type=str,
+        default='qwen/qwen3.6-27b',
+        help='Groq model to use (default: qwen/qwen3.6-27b)'
     )
     
     parser.add_argument(
@@ -190,8 +197,12 @@ Examples:
     
     # Initialize orchestrator
     print("🚀 Initializing SR-MARE...")
+    
+    api_key = args.groq_api_key or os.environ.get("GROQ_API_KEY", "")
+    
     orchestrator = ResearchOrchestrator(
-        base_url=args.ollama_url,
+        groq_api_key=api_key,
+        groq_model=args.groq_model,
         max_iterations=args.max_iterations,
         confidence_threshold=args.threshold
     )

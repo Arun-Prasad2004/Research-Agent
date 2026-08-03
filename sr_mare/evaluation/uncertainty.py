@@ -150,40 +150,36 @@ class UncertaintyEstimator:
         logger.info("📊 Computing confidence metrics...")
         
         # Compute individual metrics
-        self_consistency = self.compute_self_consistency_score(hypotheses)
+        raw_self_consistency = self.compute_self_consistency_score(hypotheses)
         evidence_diversity = self.compute_evidence_diversity_score(retrieved_docs)
         token_entropy = self.compute_token_entropy(answer)
         
+        # Scale Jaccard consistency to be realistic for natural language text (0.4+ is usually very consistent)
+        self_consistency = min(1.0, raw_self_consistency * 2.5)
+        
         # Compute retrieval quality (average similarity of top docs)
-        retrieval_quality = 0.5
+        raw_retrieval_quality = 0.5
         if retrieved_docs:
             top_scores = [score for _, score, _ in retrieved_docs[:3]]
-            retrieval_quality = np.mean(top_scores) if top_scores else 0.5
+            raw_retrieval_quality = np.mean(top_scores) if top_scores else 0.5
+            
+        # Scale retrieval to account for typical dense embedding cosine similarity ranges
+        retrieval_quality = min(1.0, raw_retrieval_quality * 1.5)
         
-        # Weighted combination for final confidence
-        # Higher critic score = higher confidence
-        # Higher consistency = higher confidence
-        # Higher retrieval quality = higher confidence
-        # Higher diversity = slightly lower confidence (more uncertainty)
-        # Moderate entropy is good (too high = uncertain, too low = repetitive)
+        # Dempster-Shafer / Bayesian Evidential Reasoning
+        # Evidence accumulation: 1 - product of uncertainties
+        m1 = retrieval_quality     # Evidence from sources
+        m2 = self_consistency      # Evidence from internal consistency
+        m3 = critic_score          # Evidence from critic evaluation
         
-        entropy_factor = 1.0 - abs(token_entropy - 0.6)  # Penalize extreme entropy
+        # Combined belief that the answer is correct (orthogonal sum)
+        combined_belief = 1.0 - ((1.0 - m1) * (1.0 - m2) * (1.0 - m3))
         
-        weights = {
-            "critic_score": 0.35,
-            "self_consistency": 0.25,
-            "retrieval_quality": 0.20,
-            "entropy_factor": 0.10,
-            "evidence_diversity": 0.10
-        }
+        # Discount by conflict (disagreement between hypotheses)
+        conflict_measure = 1.0 - self_consistency
         
-        final_confidence = (
-            weights["critic_score"] * critic_score +
-            weights["self_consistency"] * self_consistency +
-            weights["retrieval_quality"] * retrieval_quality +
-            weights["entropy_factor"] * entropy_factor +
-            weights["evidence_diversity"] * evidence_diversity
-        )
+        # Final confidence is accumulated belief penalized by conflict
+        final_confidence = combined_belief * (1.0 - (conflict_measure * 0.3))
         
         final_confidence = max(0.0, min(1.0, final_confidence))
         

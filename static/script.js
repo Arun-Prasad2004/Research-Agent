@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkSystemHealth();
     loadStats();
     setupEventListeners();
+    setupKbListeners();
 });
 
 // Setup event listeners
@@ -103,42 +104,121 @@ async function handleSubmit(e) {
     document.getElementById('sendBtn').disabled = true;
     
     try {
-        // Send research request
-        const response = await fetch('/api/research', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ question })
-        });
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/research`;
+        const ws = new WebSocket(wsUrl);
         
-        const data = await response.json();
-        
-        // Remove loading message
-        loadingMsg.remove();
-        
-        if (data.success) {
-            // Add assistant response
-            addResearchResult(data);
+        let statusBox = null;
+
+        ws.onopen = () => {
+            // Send initial question
+            ws.send(JSON.stringify({ question }));
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
             
-            // Update stats
-            totalQueries++;
-            document.getElementById('queryCount').textContent = totalQueries;
-            loadStats();
-        } else {
-            addMessage('assistant', `Error: ${data.error}`);
-        }
+            if (data.type === 'status') {
+                if (!statusBox) {
+                    // Create status box
+                    loadingMsg.innerHTML = `<div class="status-stream"></div>`;
+                    statusBox = loadingMsg.querySelector('.status-stream');
+                }
+                const p = document.createElement('p');
+                p.textContent = `> ${data.message}`;
+                p.style.margin = '4px 0';
+                p.style.fontSize = '0.9em';
+                statusBox.appendChild(p);
+                loadingMsg.scrollIntoView({ behavior: 'smooth' });
+                
+            } else if (data.type === 'mcq') {
+                // Handle multiple choice question from agent
+                if (!statusBox) {
+                    loadingMsg.innerHTML = `<div class="status-stream"></div>`;
+                    statusBox = loadingMsg.querySelector('.status-stream');
+                }
+                
+                const p = document.createElement('p');
+                p.textContent = `> Clarification needed: ${data.question}`;
+                p.style.margin = '8px 0 4px 0';
+                p.style.color = 'var(--accent)';
+                statusBox.appendChild(p);
+                
+                const btnContainer = document.createElement('div');
+                btnContainer.style.display = 'flex';
+                btnContainer.style.gap = '8px';
+                btnContainer.style.flexWrap = 'wrap';
+                btnContainer.style.marginTop = '8px';
+                
+                data.options.forEach(option => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-secondary';
+                    btn.style.fontSize = '0.8rem';
+                    btn.style.padding = '4px 8px';
+                    btn.textContent = option;
+                    btn.onclick = () => {
+                        ws.send(JSON.stringify({ answer: option }));
+                        btnContainer.remove();
+                        if (statusBox) statusBox.innerHTML += `<p>> User selected: ${option}</p>`;
+                    };
+                    btnContainer.appendChild(btn);
+                });
+                
+                loadingMsg.appendChild(btnContainer);
+                loadingMsg.scrollIntoView({ behavior: 'smooth' });
+                
+            } else if (data.type === 'result') {
+                loadingMsg.remove();
+                addResearchResult(data);
+                totalQueries++;
+                document.getElementById('queryCount').textContent = totalQueries;
+                loadStats();
+                
+                // Re-enable input
+                isProcessing = false;
+                questionInput.disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+                questionInput.focus();
+                
+            } else if (data.type === 'error') {
+                loadingMsg.remove();
+                addMessage('assistant', `Error: ${data.message}`);
+                
+                // Re-enable input
+                isProcessing = false;
+                questionInput.disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+            }
+        };
         
+        ws.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            if (isProcessing) {
+                loadingMsg.remove();
+                addMessage('assistant', `WebSocket Error occurred. Please try again.`);
+                isProcessing = false;
+                questionInput.disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+            }
+        };
+        
+        ws.onclose = () => {
+            if (isProcessing) {
+                loadingMsg.remove();
+                addMessage('assistant', `Connection closed unexpectedly.`);
+                isProcessing = false;
+                questionInput.disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+            }
+        };
+
     } catch (error) {
         loadingMsg.remove();
         addMessage('assistant', `Error: ${error.message}`);
         console.error('Research failed:', error);
-    } finally {
-        // Re-enable input
         isProcessing = false;
         questionInput.disabled = false;
         document.getElementById('sendBtn').disabled = false;
-        questionInput.focus();
     }
 }
 
@@ -224,7 +304,7 @@ function addResearchResult(data) {
                 <span>${confidence >= 0.75 ? '🎯' : confidence >= 0.5 ? '⚠️' : '❓'}</span>
             </div>
             
-            <div class="message-text">${data.answer}</div>
+            <div class="message-text markdown-body">${typeof marked !== 'undefined' ? marked.parse(data.answer) : data.answer}</div>
             
             <div class="metrics-grid">
                 <div class="metric-card">
@@ -328,4 +408,165 @@ function clearChat() {
 function scrollToBottom() {
     const chatMessages = document.getElementById('chatMessages');
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// --- Knowledge Base Upload Logic ---
+
+function setupKbListeners() {
+    const navChatBtn = document.getElementById('navChatBtn');
+    const navKbBtn = document.getElementById('navKbBtn');
+    const chatView = document.getElementById('chatView');
+    const kbView = document.getElementById('kbView');
+    
+    // Tab Switching
+    if (navChatBtn && navKbBtn) {
+        navChatBtn.addEventListener('click', () => {
+            navChatBtn.classList.add('active');
+            navKbBtn.classList.remove('active');
+            chatView.style.display = 'flex';
+            kbView.style.display = 'none';
+        });
+        
+        navKbBtn.addEventListener('click', () => {
+            navKbBtn.classList.add('active');
+            navChatBtn.classList.remove('active');
+            kbView.style.display = 'flex';
+            chatView.style.display = 'none';
+        });
+    }
+
+    // Drag and Drop Logic
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    
+    if (dropZone && fileInput) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        });
+        
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        fileInput.addEventListener('change', function() {
+            handleFiles(this.files);
+        });
+    }
+
+    // Upload Action
+    const uploadBtn = document.getElementById('uploadBtn');
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', handleManualUpload);
+    }
+}
+
+function handleFiles(files) {
+    if (files.length === 0) return;
+    
+    let documents = [];
+    let filesProcessed = 0;
+    
+    Array.from(files).forEach(file => {
+        if (!file.name.endsWith('.txt') && !file.name.endsWith('.md')) {
+            showUploadStatus(`File ${file.name} is not a supported text file.`, false);
+            filesProcessed++;
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            // Split by double newline to match backend's default behavior, or treat as one doc
+            const chunks = content.split('\n\n').filter(chunk => chunk.trim());
+            documents.push(...chunks);
+            
+            filesProcessed++;
+            if (filesProcessed === files.length) {
+                uploadDocumentsToApi(documents);
+            }
+        };
+        reader.readAsText(file);
+    });
+}
+
+async function handleManualUpload() {
+    const manualText = document.getElementById('manualText');
+    const content = manualText.value.trim();
+    
+    if (!content) {
+        showUploadStatus('Please paste some text or select a file.', false);
+        return;
+    }
+    
+    const documents = content.split('\n\n').filter(chunk => chunk.trim());
+    uploadDocumentsToApi(documents);
+    manualText.value = '';
+}
+
+async function uploadDocumentsToApi(documents) {
+    if (!documents || documents.length === 0) return;
+    
+    const btn = document.getElementById('uploadBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = `<span class="btn-text">Uploading...</span>`;
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/upload_documents', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ documents: documents })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showUploadStatus(`Successfully indexed ${documents.length} new documents!`, true);
+            // Update stats
+            if (data.total_documents) {
+                document.getElementById('docCount').textContent = data.total_documents;
+            } else {
+                checkSystemHealth();
+            }
+        } else {
+            showUploadStatus(data.detail || 'Failed to upload documents.', false);
+        }
+    } catch (error) {
+        showUploadStatus(`Error: ${error.message}`, false);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function showUploadStatus(message, isSuccess) {
+    const statusDiv = document.getElementById('uploadStatus');
+    statusDiv.textContent = message;
+    statusDiv.style.display = 'block';
+    statusDiv.className = `upload-status ${isSuccess ? 'success' : 'error'}`;
+    
+    setTimeout(() => {
+        statusDiv.style.display = 'none';
+    }, 5000);
 }

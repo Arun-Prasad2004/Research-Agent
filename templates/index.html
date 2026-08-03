@@ -7,7 +7,9 @@
     <link rel="stylesheet" href="/static/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -19,6 +21,15 @@
                     <h1>SR-MARE</h1>
                 </div>
                 <p class="tagline">Self-Reflective Multi-Agent Research Engine</p>
+            </div>
+            
+            <div class="sidebar-nav">
+                <button id="navChatBtn" class="nav-tab active">
+                    <span class="tab-icon">💬</span> Chat
+                </button>
+                <button id="navKbBtn" class="nav-tab">
+                    <span class="tab-icon">📚</span> Knowledge Base
+                </button>
             </div>
 
             <div class="system-status" id="systemStatus">
@@ -52,18 +63,18 @@
                     <li>🔄 Iterative Refinement</li>
                     <li>📊 Uncertainty Metrics</li>
                     <li>🔍 Vector Search</li>
-                    <li>🦙 100% Local (Ollama)</li>
+                    <li>⚡ Powered by Groq API</li>
                 </ul>
             </div>
 
             <div class="footer">
-                <p>Powered by Ollama</p>
-                <p class="version">v1.0.0</p>
+                <p>Powered by Groq & Qwen</p>
+                <p class="version">v1.1.0</p>
             </div>
         </aside>
 
         <!-- Main Chat Area -->
-        <main class="chat-container">
+        <main class="chat-container" id="chatView">
             <div class="chat-header">
                 <h2>Research Assistant</h2>
                 <button class="btn-secondary" id="clearChat">Clear Chat</button>
@@ -100,6 +111,44 @@
                         <span class="btn-icon">🚀</span>
                     </button>
                 </form>
+            </div>
+        </main>
+        
+        <!-- Knowledge Base Area -->
+        <main class="chat-container" id="kbView" style="display: none;">
+            <div class="chat-header">
+                <h2>Knowledge Base</h2>
+            </div>
+            <div class="kb-content">
+                <div class="kb-upload-card">
+                    <div class="kb-card-header">
+                        <h3>Upload Documents</h3>
+                        <p>Add custom research documents to the Vector Database.</p>
+                    </div>
+                    
+                    <div class="drop-zone" id="dropZone">
+                        <span class="drop-icon">📁</span>
+                        <p>Drag & Drop .txt files here</p>
+                        <p class="drop-subtext">or click to browse</p>
+                        <input type="file" id="fileInput" accept=".txt,.md" style="display: none;" multiple>
+                    </div>
+                    
+                    <div class="divider"><span>OR</span></div>
+                    
+                    <div class="manual-entry">
+                        <label for="manualText">Paste Raw Text</label>
+                        <textarea id="manualText" placeholder="Paste document content here (separate multiple documents with double newlines)..." rows="6"></textarea>
+                    </div>
+                    
+                    <div class="upload-actions">
+                        <button id="uploadBtn" class="btn-primary">
+                            <span class="btn-text">Index Documents</span>
+                            <span class="btn-icon">⚡</span>
+                        </button>
+                    </div>
+                    
+                    <div id="uploadStatus" class="upload-status" style="display: none;"></div>
+                </div>
             </div>
         </main>
     </div>

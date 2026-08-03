@@ -4,11 +4,12 @@ MCP Tool implementations for SR-MARE components.
 This module wraps existing SR-MARE components as MCP tools.
 """
 
+import json
+from typing import Dict, Any, List, Optional
 import logging
-from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 
-from sr_mare.retrieval.embedder import OllamaEmbedder
+from sr_mare.retrieval.embedder import LocalEmbedder
 from sr_mare.retrieval.vector_store import FAISSVectorStore
 from sr_mare.evaluation.uncertainty import UncertaintyEstimator
 from sr_mare.evaluation.metrics import ResearchMetrics
@@ -22,7 +23,7 @@ class MCPTools:
     
     def __init__(
         self,
-        embedder: OllamaEmbedder,
+        embedder: LocalEmbedder,
         vector_store: FAISSVectorStore,
         uncertainty_estimator: UncertaintyEstimator,
         metrics: ResearchMetrics
@@ -67,8 +68,9 @@ class MCPTools:
             
             # Format results
             documents = []
-            for doc, score, metadata in results:
+            for doc_id, doc, score, metadata in results:
                 documents.append({
+                    "id": doc_id,
                     "text": doc,
                     "similarity_score": float(score),
                     "metadata": metadata

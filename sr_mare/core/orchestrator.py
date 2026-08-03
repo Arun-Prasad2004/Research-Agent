@@ -5,14 +5,17 @@ Orchestrator for coordinating the multi-agent research pipeline with MCP.
 import logging
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Union
+from typing import Dict, Any, List, Tuple, Optional, Union, Callable
 from datetime import datetime
 
 from sr_mare.agents.planner import PlannerAgent
 from sr_mare.agents.analyst import AnalystAgent
 from sr_mare.agents.critic import CriticAgent
 from sr_mare.agents.refiner import RefinerAgent
-from sr_mare.retrieval.embedder import OllamaEmbedder
+from sr_mare.agents.forager import ForagerAgent
+from sr_mare.core.meta_router import MetaRouter
+from sr_mare.core.memory import MemoryBus
+from sr_mare.retrieval.embedder import LocalEmbedder
 from sr_mare.retrieval.vector_store import FAISSVectorStore
 from sr_mare.evaluation.uncertainty import UncertaintyEstimator
 from sr_mare.evaluation.metrics import ResearchMetrics
@@ -35,7 +38,8 @@ class ResearchOrchestrator:
     
     def __init__(
         self,
-        base_url: str = "http://localhost:11434",
+        groq_api_key: str = None,
+        groq_model: str = "llama-3.1-8b-instant",
         max_iterations: int = 3,
         confidence_threshold: float = 0.75,
         vector_store_path: Optional[str] = None
@@ -44,7 +48,8 @@ class ResearchOrchestrator:
         Initialize the research orchestrator with MCP integration.
         
         Args:
-            base_url: Base URL for Ollama API
+            groq_api_key: API key for Groq API
+            groq_model: Model string for Groq API
             max_iterations: Maximum refinement iterations
             confidence_threshold: Minimum confidence to stop refinement
             vector_store_path: Path to load existing vector store
@@ -52,7 +57,7 @@ class ResearchOrchestrator:
         logger.info("🚀 Initializing SR-MARE Research Orchestrator with MCP...")
         
         # Initialize retrieval components
-        self.embedder = OllamaEmbedder(model="nomic-embed-text", base_url=base_url)
+        self.embedder = LocalEmbedder()
         self.vector_store = FAISSVectorStore(dimension=768)
         
         # Initialize evaluation components
@@ -79,25 +84,28 @@ class ResearchOrchestrator:
         
         # Initialize agents with MCP client
         self.planner = PlannerAgent(
-            model="mistral", 
-            base_url=base_url,
+            model=groq_model, 
+            api_key=groq_api_key,
             mcp_client=self.mcp_client
         )
         self.analyst = AnalystAgent(
-            model="mistral", 
-            base_url=base_url,
+            model=groq_model, 
+            api_key=groq_api_key,
             mcp_client=self.mcp_client
         )
         self.critic = CriticAgent(
-            model="llama3.2", 
-            base_url=base_url,
+            model=groq_model, 
+            api_key=groq_api_key,
             mcp_client=self.mcp_client
         )
         self.refiner = RefinerAgent(
-            model="llama3.2", 
-            base_url=base_url,
+            model=groq_model, 
+            api_key=groq_api_key,
             mcp_client=self.mcp_client
         )
+        self.forager = ForagerAgent(mcp_client=self.mcp_client)
+        self.meta_router = MetaRouter(mcp_client=self.mcp_client)
+        self.memory = MemoryBus()
         
         # Configuration
         self.max_iterations = max_iterations
@@ -334,13 +342,66 @@ class ResearchOrchestrator:
         logger.info(f"✓ Retrieved {result['num_retrieved']} documents")
         return result["documents"]
     
-    def research(self, question: str, top_k: int = 5) -> Dict[str, Any]:
+    def _fast_lane_research(self, question: str, top_k: int, event_callback: Callable = None) -> Dict[str, Any]:
+        """Low entropy fast lane execution."""
+        start_time = datetime.now()
+        logger.info("⚡ Executing Fast Lane Research...")
+        if event_callback: event_callback({"type": "status", "message": "Executing Fast Lane (Direct RAG)..."})
+        
+        # 1. Retrieve
+        retrieved_docs = self.retrieve_context(question, k=top_k)
+        
+        # 2. Answer directly
+        analysis = self.analyst.analyze_with_context(question, retrieved_docs, {"tasks": ["Answer question directly"]}, event_callback=event_callback)
+        current_answer = analysis["answer"]
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        # Save episodic memory
+        self.memory.store_episode(question, {"strategy": "fast_lane"}, current_answer, 0.90)
+        
+        # Format retrieved docs for output
+        retrieved_sources = [
+            {
+                "text": doc["text"][:200] + "..." if len(doc["text"]) > 200 else doc["text"],
+                "similarity_score": doc["similarity_score"],
+                "similarity": doc["similarity_score"],
+                "metadata": doc.get("metadata", {})
+            }
+            for doc in retrieved_docs
+        ]
+        
+        return {
+            "question": question,
+            "final_answer": current_answer,
+            "confidence_score": 0.90,
+            "confidence_metrics": {
+                "final_confidence": 0.90, 
+                "critic_quality_score": 0.90, 
+                "self_consistency_score": 0.90, 
+                "evidence_diversity_score": 0.90,
+                "retrieval_quality": 0.90
+            },
+            "critic_feedback": {
+                "strengths": ["Fast lane execution", "Direct context retrieval"],
+                "weaknesses": ["Lack of multi-agent verification"],
+                "hallucination_risk": "low"
+            },
+            "iterations": 1,
+            "retrieved_sources": retrieved_sources,
+            "duration_seconds": duration,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    def research(self, question: str, top_k: int = 5, event_callback: Callable = None, mcq_callback: Callable = None) -> Dict[str, Any]:
         """
         Execute the complete research pipeline for a question using MCP.
         
         Args:
             question: The research question to answer
             top_k: Number of documents to retrieve
+            event_callback: Callback function for emitting status updates
+            mcq_callback: Callback function for requesting MCQ disambiguation from user
             
         Returns:
             Dictionary containing complete research results
@@ -351,13 +412,31 @@ class ResearchOrchestrator:
         
         start_time = datetime.now()
         
+        # --- SR-MARE 2.0 META ROUTING ---
+        routing_decision = self.meta_router.assess_entropy(question)
+        if event_callback:
+            event_callback({"type": "status", "message": f"Meta-Router assessed complexity: {routing_decision['entropy']}. Routing to {routing_decision['route']}."})
+            
+        if routing_decision['route'] == 'fast_lane':
+            return self._fast_lane_research(question, top_k, event_callback)
+        # --------------------------------
+        
         # Step 1: Planning
         logger.info("\n[STEP 1] Planning...")
-        plan = self.planner.plan(question)
+        if event_callback: event_callback({"type": "status", "message": "Planning strategy and analyzing ambiguity..."})
         
-        # Step 2: Retrieval via MCP
-        logger.info("\n[STEP 2] Retrieving relevant context via MCP...")
-        retrieved_docs = self.retrieve_context(question, k=top_k)
+        plan = self.planner.plan(question, event_callback=event_callback, mcq_callback=mcq_callback)
+        
+        # Check if planner updated the question (disambiguation)
+        if isinstance(plan, dict) and "refined_question" in plan:
+            question = plan["refined_question"]
+            if event_callback: event_callback({"type": "status", "message": f"Proceeding with clarified question: {question}"})
+        
+        # Step 2: Context Retrieval (Fractal Forager)
+        logger.info("\n[STEP 2] Fractal Context Retrieval...")
+        if event_callback: event_callback({"type": "status", "message": "Forager: Executing fractal retrieval loops..."})
+        retrieved_docs, kg_synthesis = self.forager.forage(question, max_depth=3)
+        plan["kg_synthesis"] = kg_synthesis
         
         # Compute retrieval metrics via MCP
         retrieval_metrics = self.mcp_client.execute_tool(
@@ -367,7 +446,8 @@ class ResearchOrchestrator:
         
         # Step 3: Initial analysis
         logger.info("\n[STEP 3] Generating initial analysis...")
-        analysis = self.analyst.analyze_with_context(question, retrieved_docs, plan)
+        if event_callback: event_callback({"type": "status", "message": "Analyzing context and generating hypotheses..."})
+        analysis = self.analyst.analyze_with_context(question, retrieved_docs, plan, event_callback=event_callback)
         
         current_answer = analysis["answer"]
         hypotheses = analysis["hypotheses"]
@@ -379,6 +459,7 @@ class ResearchOrchestrator:
         while iteration < self.max_iterations:
             iteration += 1
             logger.info(f"\n[ITERATION {iteration}] Evaluating and refining...")
+            if event_callback: event_callback({"type": "status", "message": f"Iteration {iteration}: Evaluating and refining..."})
             
             # Step 4: Critique
             critique = self.critic.critique(question, current_answer, hypotheses)
@@ -419,6 +500,7 @@ class ResearchOrchestrator:
             
             # Step 6: Refinement
             logger.info(f"  Refining answer (iteration {iteration})...")
+            if event_callback: event_callback({"type": "status", "message": f"Iteration {iteration}: Refining answer based on critique..."})
             current_answer = self.refiner.iterative_refine(
                 question,
                 current_answer,

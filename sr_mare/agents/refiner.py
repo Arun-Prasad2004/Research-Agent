@@ -4,6 +4,7 @@ Refiner agent for improving answers based on critic feedback.
 
 import requests
 import logging
+import time
 from typing import Dict, Any, List, Tuple, Optional, Union
 
 logging.basicConfig(level=logging.INFO)
@@ -15,29 +16,32 @@ class RefinerAgent:
     
     def __init__(
         self, 
-        model: str = "llama3.2", 
-        base_url: str = "http://localhost:11434",
+        model: str = "llama-3.1-8b-instant", 
+        api_key: str = None,
         mcp_client: Optional[Any] = None
     ):
         """
         Initialize the refiner agent.
         
         Args:
-            model: Name of the Ollama model to use (llama3.2 for refinement)
-            base_url: Base URL for Ollama API
+            model: Name of the Groq model to use
+            api_key: Groq API key
             mcp_client: MCP client for tool interaction
         """
         self.model = model
-        self.base_url = base_url
-        self.generate_url = f"{base_url}/api/generate"
+        self.api_key = api_key
+        self.generate_url = "https://api.groq.com/openai/v1/chat/completions"
         self.mcp_client = mcp_client
         
+        if not self.api_key:
+            logger.warning("No Groq API key provided. Agent will fail if key is required.")
+            
         if mcp_client:
             logger.info("🔌 Refiner agent connected to MCP")
         
-    def _call_ollama(self, prompt: str, temperature: float = 0.5) -> str:
+    def _call_llm(self, prompt: str, temperature: float = 0.5) -> str:
         """
-        Call Ollama API with retry logic.
+        Call Groq API with retry logic.
         
         Args:
             prompt: Input prompt
@@ -46,30 +50,50 @@ class RefinerAgent:
         Returns:
             Generated text response
         """
-        max_retries = 3
+        max_retries = 5
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        fallback_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        current_model_idx = fallback_models.index(self.model) if self.model in fallback_models else 0
         
         for attempt in range(max_retries):
+            current_model = fallback_models[current_model_idx % len(fallback_models)]
             try:
                 payload = {
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
+                    "model": current_model,
+                    "messages": [{"role": "user", "content": prompt}],
                     "temperature": temperature,
-                    "options": {
-                        "num_predict": 1500
-                    }
+                    "max_tokens": 2000
                 }
                 
-                response = requests.post(self.generate_url, json=payload, timeout=90)
+                response = requests.post(self.generate_url, headers=headers, json=payload, timeout=90)
                 response.raise_for_status()
                 
                 result = response.json()
-                return result["response"].strip()
+                return result["choices"][0]["message"]["content"].strip()
                 
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning(f"Attempt {attempt + 1} failed on {current_model}: {e}")
+                
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                    wait_time = int(e.response.headers.get("Retry-After", (attempt + 1) * 3))
+                    if wait_time > 15:
+                        logger.info(f"Rate limited on {current_model} for {wait_time}s. Switching to fallback model...")
+                        current_model_idx += 1
+                        if current_model_idx >= len(fallback_models):
+                            raise Exception(f"Groq API rate limit exceeded on ALL models. Please wait {wait_time} seconds.")
+                        continue
+                    
+                    logger.info(f"Rate limited. Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    time.sleep(2 ** attempt)
+                    
                 if attempt == max_retries - 1:
-                    raise Exception(f"Failed to call Ollama after {max_retries} attempts: {e}")
+                    raise Exception(f"Failed to call API after {max_retries} attempts: {e}")
         
         return ""
     
@@ -139,9 +163,11 @@ Instructions:
 5. Make the answer more complete and accurate
 6. Remove or qualify any unsupported claims
 
-Provide the refined, improved answer:"""
+CRITICAL REQUIREMENT: Provide ONLY the final refined answer. Do NOT include any "thinking process", "internal monologues", or meta-commentary. Output the final markdown response directly.
 
-        refined_answer = self._call_ollama(refinement_prompt, temperature=0.5)
+Your refined answer:"""
+
+        refined_answer = self._call_llm(refinement_prompt, temperature=0.5)
         
         logger.info("✓ Refiner: Answer refined")
         return refined_answer

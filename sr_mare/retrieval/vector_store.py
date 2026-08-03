@@ -58,7 +58,7 @@ class FAISSVectorStore:
         
         logger.info(f"Added {len(documents)} documents to vector store. Total: {len(self.documents)}")
     
-    def search(self, query_embedding: np.ndarray, k: int = 5) -> List[Tuple[str, float, dict]]:
+    def search(self, query_embedding: np.ndarray, k: int = 5, exclude_indices: Optional[List[int]] = None) -> List[Tuple[int, str, float, dict]]:
         """
         Search for similar documents.
         
@@ -67,7 +67,7 @@ class FAISSVectorStore:
             k: Number of results to return
             
         Returns:
-            List of tuples (document, similarity_score, metadata)
+            List of tuples (doc_id, document, similarity_score, metadata)
         """
         if len(self.documents) == 0:
             logger.warning("Vector store is empty")
@@ -80,21 +80,37 @@ class FAISSVectorStore:
         faiss.normalize_L2(query_embedding)
         
         # Search
-        k = min(k, len(self.documents))
-        distances, indices = self.index.search(query_embedding, k)
+        # If we have exclusions, retrieve more to compensate
+        fetch_k = k
+        if exclude_indices:
+            fetch_k += len(exclude_indices)
+            fetch_k = min(fetch_k, len(self.documents))
+        else:
+            fetch_k = min(fetch_k, len(self.documents))
+            
+        distances, indices = self.index.search(query_embedding, fetch_k)
         
         results = []
+        exclude_set = set(exclude_indices) if exclude_indices else set()
+        
         for idx, distance in zip(indices[0], distances[0]):
+            if int(idx) in exclude_set:
+                continue
+                
             # Convert L2 distance to similarity score (0-1)
             # After normalization, L2 distance ranges from 0 to 2
             similarity = 1 - (distance / 2.0)
             similarity = max(0.0, min(1.0, similarity))
             
             results.append((
+                int(idx),
                 self.documents[idx],
                 float(similarity),
                 self.metadata[idx]
             ))
+            
+            if len(results) >= k:
+                break
         
         return results
     

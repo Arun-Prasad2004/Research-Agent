@@ -4,7 +4,9 @@ Analyst agent for generating initial answers and multiple hypotheses.
 
 import requests
 import logging
-from typing import List, Dict, Any, Tuple, Optional, Union
+import time
+import concurrent.futures
+from typing import List, Dict, Any, Tuple, Optional, Union, Callable
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,29 +17,32 @@ class AnalystAgent:
     
     def __init__(
         self, 
-        model: str = "mistral", 
-        base_url: str = "http://localhost:11434",
+        model: str = "llama-3.1-8b-instant", 
+        api_key: str = None,
         mcp_client: Optional[Any] = None
     ):
         """
         Initialize the analyst agent.
         
         Args:
-            model: Name of the Ollama model to use
-            base_url: Base URL for Ollama API
+            model: Name of the Groq model to use
+            api_key: Groq API key
             mcp_client: MCP client for tool interaction
         """
         self.model = model
-        self.base_url = base_url
-        self.generate_url = f"{base_url}/api/generate"
+        self.api_key = api_key
+        self.generate_url = "https://api.groq.com/openai/v1/chat/completions"
         self.mcp_client = mcp_client
         
+        if not self.api_key:
+            logger.warning("No Groq API key provided. Agent will fail if key is required.")
+            
         if mcp_client:
             logger.info("🔌 Analyst agent connected to MCP")
         
-    def _call_ollama(self, prompt: str, temperature: float = 0.7) -> str:
+    def _call_llm(self, prompt: str, temperature: float = 0.7) -> str:
         """
-        Call Ollama API with retry logic.
+        Call Groq API with retry logic.
         
         Args:
             prompt: Input prompt
@@ -46,30 +51,50 @@ class AnalystAgent:
         Returns:
             Generated text response
         """
-        max_retries = 3
+        max_retries = 5
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        fallback_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        current_model_idx = fallback_models.index(self.model) if self.model in fallback_models else 0
         
         for attempt in range(max_retries):
+            current_model = fallback_models[current_model_idx % len(fallback_models)]
             try:
                 payload = {
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
+                    "model": current_model,
+                    "messages": [{"role": "user", "content": prompt}],
                     "temperature": temperature,
-                    "options": {
-                        "num_predict": 1500
-                    }
+                    "max_tokens": 1500
                 }
                 
-                response = requests.post(self.generate_url, json=payload, timeout=90)
+                response = requests.post(self.generate_url, headers=headers, json=payload, timeout=90)
                 response.raise_for_status()
                 
                 result = response.json()
-                return result["response"].strip()
+                return result["choices"][0]["message"]["content"].strip()
                 
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning(f"Attempt {attempt + 1} failed on {current_model}: {e}")
+                
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                    wait_time = int(e.response.headers.get("Retry-After", (attempt + 1) * 3))
+                    if wait_time > 15:
+                        logger.info(f"Rate limited on {current_model} for {wait_time}s. Switching to fallback model...")
+                        current_model_idx += 1
+                        if current_model_idx >= len(fallback_models):
+                            raise Exception(f"Groq API rate limit exceeded on ALL models. Please wait {wait_time} seconds.")
+                        continue
+                    
+                    logger.info(f"Rate limited. Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    time.sleep(2 ** attempt)
+                    
                 if attempt == max_retries - 1:
-                    raise Exception(f"Failed to call Ollama after {max_retries} attempts: {e}")
+                    raise Exception(f"Failed to call API after {max_retries} attempts: {e}")
         
         return ""
     
@@ -126,9 +151,11 @@ Instructions:
 4. Cite sources where appropriate
 5. Be explicit about any limitations or uncertainties
 
+CRITICAL REQUIREMENT: Provide ONLY the final comprehensive answer. Do NOT include any "thinking process", "internal monologues", or meta-commentary. Output the final markdown response directly.
+
 Your comprehensive answer:"""
 
-        answer = self._call_ollama(analysis_prompt, temperature=0.7)
+        answer = self._call_llm(analysis_prompt, temperature=0.7)
         logger.info("✓ Analyst: Generated initial answer")
         return answer
     
@@ -136,7 +163,8 @@ Your comprehensive answer:"""
         self,
         question: str,
         retrieved_context,
-        num_hypotheses: int = 3
+        num_hypotheses: int = 3,
+        event_callback: Callable = None
     ) -> List[str]:
         """
         Generate multiple independent hypotheses using self-consistency sampling.
@@ -179,13 +207,26 @@ Generate ONE clear, evidence-based hypothesis that answers the question. Be conc
 
 Your hypothesis:"""
 
-        hypotheses = []
+        hypotheses = [None] * num_hypotheses
         
-        for i in range(num_hypotheses):
-            # Use temperature=0.8 for diversity
-            hypothesis = self._call_ollama(hypothesis_prompt, temperature=0.8)
-            hypotheses.append(hypothesis)
+        def _generate_single_hypothesis(i: int):
+            if event_callback: event_callback({"type": "status", "message": f"Deploying Sub-Agent {i+1} for hypothesis generation..."})
+            h = self._call_llm(hypothesis_prompt, temperature=0.8)
             logger.info(f"  Generated hypothesis {i+1}/{num_hypotheses}")
+            if event_callback: event_callback({"type": "status", "message": f"Sub-Agent {i+1} completed hypothesis generation."})
+            return h
+
+        if event_callback: event_callback({"type": "status", "message": f"Spawning {num_hypotheses} sub-agents concurrently..."})
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_hypotheses) as executor:
+            future_to_idx = {executor.submit(_generate_single_hypothesis, i): i for i in range(num_hypotheses)}
+            for future in concurrent.futures.as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    hypotheses[idx] = future.result()
+                except Exception as e:
+                    logger.error(f"Sub-agent {idx+1} failed: {e}")
+                    hypotheses[idx] = "Failed to generate hypothesis."
         
         logger.info(f"✓ Analyst: Generated {len(hypotheses)} hypotheses")
         return hypotheses
@@ -194,7 +235,8 @@ Your hypothesis:"""
         self,
         question: str,
         retrieved_context: Union[List[Tuple[str, float, dict]], List[Dict[str, Any]]],
-        plan: Dict[str, Any]
+        plan: Dict[str, Any],
+        event_callback: Callable = None
     ) -> Dict[str, Any]:
         """
         Perform complete analysis: generate answer and hypotheses.
@@ -208,10 +250,13 @@ Your hypothesis:"""
             Dictionary containing answer and hypotheses
         """
         # Generate main answer
+        if event_callback: event_callback({"type": "status", "message": "Deploying Main Analyst Agent to generate primary answer..."})
         answer = self.generate_answer(question, retrieved_context, plan)
         
         # Generate alternative hypotheses
-        hypotheses = self.generate_hypotheses(question, retrieved_context, num_hypotheses=3)
+        hypotheses = self.generate_hypotheses(question, retrieved_context, num_hypotheses=3, event_callback=event_callback)
+        
+        if event_callback: event_callback({"type": "status", "message": "All Analyst sub-agents killed. Merging outputs..."})
         
         return {
             "answer": answer,
